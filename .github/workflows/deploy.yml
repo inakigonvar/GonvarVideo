@@ -1,0 +1,57 @@
+name: Deploy GonvarVideo
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: 15.235.66.220
+      DEPLOY_PORT: 22
+      DEPLOY_USER: root
+      DEPLOY_PATH: /home/express-processing
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install rsync and sshpass
+        run: sudo apt-get update && sudo apt-get install -y rsync sshpass
+
+      - name: Sync project files to remote server
+        env:
+          DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
+        run: |
+          test -n "$DEPLOY_PASSWORD"
+          sshpass -p "$DEPLOY_PASSWORD" rsync -az --delete \
+            --exclude ".git/" \
+            --exclude ".github/" \
+            --exclude ".env" \
+            --exclude "node_modules/" \
+            --exclude "media/" \
+            --exclude "tmp/" \
+            -e "ssh -o StrictHostKeyChecking=no -p ${DEPLOY_PORT}" \
+            ./ "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/"
+
+      - name: Install production dependencies and restart server
+        env:
+          DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
+        run: |
+          test -n "$DEPLOY_PASSWORD"
+          sshpass -p "$DEPLOY_PASSWORD" ssh \
+            -o StrictHostKeyChecking=no \
+            -p "${DEPLOY_PORT}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" <<EOF
+          set -e
+          cd "${DEPLOY_PATH}"
+          rm -rf node_modules
+          if [ -f package-lock.json ]; then
+            npm ci --omit=dev
+          else
+            npm install --omit=dev
+          fi
+          pm2 restart gonvarvideo || pm2 start server.js --name gonvarvideo
+          EOF
