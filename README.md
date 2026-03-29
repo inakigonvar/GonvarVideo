@@ -40,6 +40,7 @@ Si llega en menor resolucion, la carpeta base guarda la resolucion fuente y las 
 Puedes copiar `.env.example` como referencia.
 
 - `PORT`: puerto del servidor
+- `PUBLIC_BASE_URL`: dominio base para devolver hipervinculos absolutos en la respuesta
 - `MEDIA_ROOT`: carpeta final para playlists y segmentos
 - `TEMP_UPLOAD_ROOT`: carpeta temporal para subidas
 - `CORS_ORIGINS`: origenes permitidos separados por comas
@@ -97,7 +98,23 @@ curl -X POST http://localhost:25565/api/lessons/upload \
   -F "video=@/ruta/local/video.mp4"
 ```
 
-La respuesta incluye `masterPlaylist`, `sourcePlaylist` y el detalle de cada variante para que el backend o frontend pueda guardar el hyperlink final en `lessons`.
+La respuesta incluye `masterPlaylist`, `sourcePlaylist` y tambien `masterPlaylistUrl`, `sourcePlaylistUrl` y `publicUrl` por variante para que el backend o frontend pueda guardar el hyperlink final en `lessons`.
+
+Ejemplo esperado:
+
+```text
+https://video.gonvar.io/media/<course-name>/<seasonNumber>_<lessonNumber>/master.m3u8
+```
+
+El `lessonNumber` se rellena con cero a la izquierda cuando es menor a 10, por ejemplo `2_01`, `2_02`, ..., `2_10`.
+
+Si una leccion ya tenia hyperlink y se vuelve a subir un video, el sistema conserva el video anterior y genera una nueva version dentro de la carpeta de esa leccion, por ejemplo:
+
+```text
+https://video.gonvar.io/media/<course-name>/<seasonNumber>_<lessonNumber>/v20260329153045/master.m3u8
+```
+
+Luego el frontend solo actualiza el hyperlink de la leccion al nuevo `masterPlaylistUrl`.
 
 ## Nota de integracion
 

@@ -8,6 +8,8 @@ const {
   ensureFfmpegAvailable,
   probeVideo,
   buildLessonPaths,
+  tryBuildLessonPathsFromExistingLink,
+  buildVersionedLessonPaths,
   processLessonVideo,
 } = require('./src/video-processing');
 
@@ -16,6 +18,7 @@ const PORT = Number(process.env.PORT || 25565);
 const MEDIA_ROOT = process.env.MEDIA_ROOT || path.join(__dirname, 'media');
 const TEMP_UPLOAD_ROOT = process.env.TEMP_UPLOAD_ROOT || path.join(__dirname, 'tmp', 'uploads');
 const MAX_UPLOAD_SIZE_MB = Number(process.env.MAX_UPLOAD_SIZE_MB || 2048);
+const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
 const ORIGIN_WHITELIST = new Set(
   (process.env.CORS_ORIGINS || 'https://stage.gonvar.io,https://www.gonvar.io')
     .split(',')
@@ -25,6 +28,24 @@ const ORIGIN_WHITELIST = new Set(
 
 fs.mkdirSync(TEMP_UPLOAD_ROOT, { recursive: true });
 fs.mkdirSync(MEDIA_ROOT, { recursive: true });
+
+function buildAbsoluteUrl(req, relativePath) {
+  const normalizedPath = String(relativePath || '').startsWith('/')
+    ? String(relativePath || '')
+    : `/${String(relativePath || '')}`;
+
+  if (PUBLIC_BASE_URL) {
+    return `${PUBLIC_BASE_URL}${normalizedPath}`;
+  }
+
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const proto = typeof forwardedProto === 'string'
+    ? forwardedProto.split(',')[0].trim()
+    : req.protocol;
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+
+  return `${proto}://${host}${normalizedPath}`;
+}
 
 const upload = multer({
   dest: TEMP_UPLOAD_ROOT,
@@ -147,9 +168,18 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
       lessonNumber: req.body.lessonNumber,
       lessonTitle: req.body.lessonTitle,
       lessonId: req.body.lessonId,
+      existingLink: req.body.existingLink,
     };
 
-    const lessonPaths = buildLessonPaths(MEDIA_ROOT, lessonInput);
+    const existingLessonPaths = tryBuildLessonPathsFromExistingLink(
+      MEDIA_ROOT,
+      lessonInput.existingLink,
+      lessonInput.courseTitle,
+    );
+    const lessonPaths = existingLessonPaths
+      ? buildVersionedLessonPaths(existingLessonPaths)
+      : buildLessonPaths(MEDIA_ROOT, lessonInput);
+
     const sourceProbe = await probeVideo(req.file.path);
     const result = await processLessonVideo({
       inputFilePath: req.file.path,
@@ -172,7 +202,15 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
         lessonKey: result.lessonKey,
       },
       source: sourceProbe,
-      hls: result,
+      hls: {
+        ...result,
+        sourcePlaylistUrl: buildAbsoluteUrl(req, result.sourcePlaylist),
+        masterPlaylistUrl: buildAbsoluteUrl(req, result.masterPlaylist),
+        variants: result.variants.map((variant) => ({
+          ...variant,
+          publicUrl: buildAbsoluteUrl(req, variant.publicPath),
+        })),
+      },
     });
   } catch (error) {
     await cleanupTempFile();

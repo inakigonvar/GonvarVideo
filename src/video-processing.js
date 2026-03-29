@@ -89,6 +89,66 @@ function buildLessonPaths(mediaRoot, lessonInput) {
     lessonKey,
     courseDir,
     sourceDir,
+    versionKey: null,
+  };
+}
+
+function parseLessonKey(lessonKey) {
+  const match = String(lessonKey || '').match(/^(\d+)_(\d{2})$/);
+
+  if (!match) {
+    throw new Error('lessonKey no es valido.');
+  }
+
+  return {
+    seasonNumber: Number(match[1]),
+    lessonNumber: Number(match[2]),
+  };
+}
+
+function tryBuildLessonPathsFromExistingLink(mediaRoot, existingLink, fallbackCourseTitle) {
+  const normalizedLink = String(existingLink || '').trim();
+  const match = normalizedLink.match(/(?:https?:\/\/[^/]+)?\/media\/([^/]+)\/(\d+_\d{2})(?:\/([^/]+))?\/master\.m3u8(?:\?.*)?$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const courseSlug = match[1];
+  const lessonKey = match[2];
+  const versionKey = match[3] || null;
+  const { seasonNumber, lessonNumber } = parseLessonKey(lessonKey);
+  const courseDir = path.join(mediaRoot, courseSlug);
+  const sourceDir = versionKey
+    ? path.join(courseDir, lessonKey, versionKey)
+    : path.join(courseDir, lessonKey);
+
+  return {
+    courseSlug,
+    courseTitle: fallbackCourseTitle || courseSlug,
+    seasonNumber,
+    lessonNumber,
+    lessonKey,
+    courseDir,
+    sourceDir,
+    versionKey,
+  };
+}
+
+function createVersionKey() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+
+  return `v${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
+function buildVersionedLessonPaths(existingLessonPaths) {
+  const versionKey = createVersionKey();
+
+  return {
+    ...existingLessonPaths,
+    sourceDir: path.join(existingLessonPaths.courseDir, existingLessonPaths.lessonKey, versionKey),
+    versionKey,
   };
 }
 
@@ -247,7 +307,9 @@ async function processLessonVideo({ inputFilePath, mediaRoot, sourceProbe, lesso
     const isSourceVariant = targetHeight === sourceProbe.height;
     const outputDir = isSourceVariant
       ? lessonPaths.sourceDir
-      : path.join(lessonPaths.courseDir, label, lessonPaths.lessonKey);
+      : lessonPaths.versionKey
+        ? path.join(lessonPaths.courseDir, label, lessonPaths.lessonKey, lessonPaths.versionKey)
+        : path.join(lessonPaths.courseDir, label, lessonPaths.lessonKey);
 
     await generateHlsVariant({
       inputFilePath,
@@ -291,5 +353,7 @@ module.exports = {
   ensureFfmpegAvailable,
   probeVideo,
   buildLessonPaths,
+  tryBuildLessonPathsFromExistingLink,
+  buildVersionedLessonPaths,
   processLessonVideo,
 };
