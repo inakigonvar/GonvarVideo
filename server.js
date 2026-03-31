@@ -10,7 +10,7 @@ const {
   buildLessonPaths,
   tryBuildLessonPathsFromExistingLink,
   buildVersionedLessonPaths,
-  processLessonVideo,
+  processLessonVideoQuickStart,
 } = require('./src/video-processing');
 
 const app = express();
@@ -181,7 +181,7 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
       : buildLessonPaths(MEDIA_ROOT, lessonInput);
 
     const sourceProbe = await probeVideo(req.file.path);
-    const result = await processLessonVideo({
+    const { initialResult, pendingVariants, backgroundTask } = await processLessonVideoQuickStart({
       inputFilePath: req.file.path,
       mediaRoot: MEDIA_ROOT,
       sourceProbe,
@@ -189,24 +189,45 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
       publicMediaBase: '/media',
     });
 
-    await cleanupTempFile();
+    backgroundTask
+      .catch((error) => {
+        console.error('[GonvarVideo] Background processing task failed', {
+          courseTitle: lessonInput.courseTitle,
+          lessonTitle: lessonInput.lessonTitle || null,
+          lessonId: lessonInput.lessonId || null,
+          existingLink: lessonInput.existingLink || null,
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+      })
+      .finally(() => {
+        cleanupTempFile();
+      });
 
     return res.status(201).json({
       ok: true,
       lesson: {
         lessonId: lessonInput.lessonId || null,
         lessonTitle: lessonInput.lessonTitle || null,
-        courseTitle: result.courseTitle,
-        seasonNumber: result.seasonNumber,
-        lessonNumber: result.lessonNumber,
-        lessonKey: result.lessonKey,
+        courseTitle: initialResult.courseTitle,
+        seasonNumber: initialResult.seasonNumber,
+        lessonNumber: initialResult.lessonNumber,
+        lessonKey: initialResult.lessonKey,
       },
       source: sourceProbe,
+      processing: {
+        startedInBackground: pendingVariants > 0,
+        pendingVariants,
+        readyToUse: true,
+        message: pendingVariants > 0
+          ? 'La primera resolucion ya esta disponible. El resto se seguira generando en segundo plano.'
+          : 'El video ya quedo disponible.',
+      },
       hls: {
-        ...result,
-        sourcePlaylistUrl: buildAbsoluteUrl(req, result.sourcePlaylist),
-        masterPlaylistUrl: buildAbsoluteUrl(req, result.masterPlaylist),
-        variants: result.variants.map((variant) => ({
+        ...initialResult,
+        sourcePlaylistUrl: buildAbsoluteUrl(req, initialResult.sourcePlaylist),
+        masterPlaylistUrl: buildAbsoluteUrl(req, initialResult.masterPlaylist),
+        variants: initialResult.variants.map((variant) => ({
           ...variant,
           publicUrl: buildAbsoluteUrl(req, variant.publicPath),
         })),

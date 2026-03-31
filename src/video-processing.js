@@ -296,46 +296,29 @@ async function writeMasterPlaylist({ sourceDir, lessonKey, variants }) {
   return masterPath;
 }
 
-async function processLessonVideo({ inputFilePath, mediaRoot, sourceProbe, lessonPaths, publicMediaBase }) {
-  const targetHeights = pickTargetHeights(sourceProbe.height);
-  const variants = [];
+function buildVariantDescriptor({ mediaRoot, publicMediaBase, lessonPaths, sourceProbe, targetHeight }) {
+  const label = getVariantLabel(targetHeight, sourceProbe.height);
+  const isSourceVariant = targetHeight === sourceProbe.height;
+  const outputDir = isSourceVariant
+    ? lessonPaths.sourceDir
+    : lessonPaths.versionKey
+      ? path.join(lessonPaths.courseDir, label, lessonPaths.lessonKey, lessonPaths.versionKey)
+      : path.join(lessonPaths.courseDir, label, lessonPaths.lessonKey);
 
-  await fs.mkdir(lessonPaths.courseDir, { recursive: true });
+  return {
+    label: isSourceVariant && label !== '4k' ? SOURCE_LABEL : label,
+    width: getScaledWidth(sourceProbe.width, sourceProbe.height, targetHeight),
+    height: targetHeight,
+    bandwidth: parseInt(getBitrateForHeight(targetHeight), 10) * 1000,
+    playlistPath: path.join(outputDir, 'media.m3u8'),
+    publicPath: `${publicMediaBase}/${path.relative(mediaRoot, path.join(outputDir, 'media.m3u8')).split(path.sep).join('/')}`,
+    directory: outputDir,
+    isSourceVariant,
+    targetHeight,
+  };
+}
 
-  for (const targetHeight of targetHeights) {
-    const label = getVariantLabel(targetHeight, sourceProbe.height);
-    const isSourceVariant = targetHeight === sourceProbe.height;
-    const outputDir = isSourceVariant
-      ? lessonPaths.sourceDir
-      : lessonPaths.versionKey
-        ? path.join(lessonPaths.courseDir, label, lessonPaths.lessonKey, lessonPaths.versionKey)
-        : path.join(lessonPaths.courseDir, label, lessonPaths.lessonKey);
-
-    await generateHlsVariant({
-      inputFilePath,
-      outputDir,
-      targetHeight,
-      sourceHeight: sourceProbe.height,
-    });
-
-    variants.push({
-      label: isSourceVariant && label !== '4k' ? SOURCE_LABEL : label,
-      width: getScaledWidth(sourceProbe.width, sourceProbe.height, targetHeight),
-      height: targetHeight,
-      bandwidth: parseInt(getBitrateForHeight(targetHeight), 10) * 1000,
-      playlistPath: path.join(outputDir, 'media.m3u8'),
-      publicPath: `${publicMediaBase}/${path.relative(mediaRoot, path.join(outputDir, 'media.m3u8')).split(path.sep).join('/')}`,
-      directory: outputDir,
-      isSourceVariant,
-    });
-  }
-
-  const masterPlaylistPath = await writeMasterPlaylist({
-    sourceDir: lessonPaths.sourceDir,
-    lessonKey: lessonPaths.lessonKey,
-    variants,
-  });
-
+function buildLessonResult({ mediaRoot, publicMediaBase, lessonPaths, masterPlaylistPath, variants }) {
   return {
     courseTitle: lessonPaths.courseTitle,
     courseSlug: lessonPaths.courseSlug,
@@ -346,7 +329,141 @@ async function processLessonVideo({ inputFilePath, mediaRoot, sourceProbe, lesso
     sourcePlaylist: `${publicMediaBase}/${path.relative(mediaRoot, path.join(lessonPaths.sourceDir, 'media.m3u8')).split(path.sep).join('/')}`,
     masterPlaylist: `${publicMediaBase}/${path.relative(mediaRoot, masterPlaylistPath).split(path.sep).join('/')}`,
     variants,
+    versionKey: lessonPaths.versionKey || null,
   };
+}
+
+async function generateVariantAndCollect({ inputFilePath, sourceProbe, variantDescriptor }) {
+  await generateHlsVariant({
+    inputFilePath,
+    outputDir: variantDescriptor.directory,
+    targetHeight: variantDescriptor.targetHeight,
+    sourceHeight: sourceProbe.height,
+  });
+
+  return {
+    label: variantDescriptor.label,
+    width: variantDescriptor.width,
+    height: variantDescriptor.height,
+    bandwidth: variantDescriptor.bandwidth,
+    playlistPath: variantDescriptor.playlistPath,
+    publicPath: variantDescriptor.publicPath,
+    directory: variantDescriptor.directory,
+    isSourceVariant: variantDescriptor.isSourceVariant,
+  };
+}
+
+function logBackgroundVariantError({ lessonPaths, variantDescriptor, error }) {
+  console.error('[GonvarVideo] Background variant processing failed', {
+    courseSlug: lessonPaths.courseSlug,
+    courseTitle: lessonPaths.courseTitle,
+    seasonNumber: lessonPaths.seasonNumber,
+    lessonNumber: lessonPaths.lessonNumber,
+    lessonKey: lessonPaths.lessonKey,
+    versionKey: lessonPaths.versionKey || null,
+    variantLabel: variantDescriptor.label,
+    targetHeight: variantDescriptor.targetHeight,
+    outputDir: variantDescriptor.directory,
+    playlistPath: variantDescriptor.playlistPath,
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
+}
+
+async function processLessonVideoQuickStart({ inputFilePath, mediaRoot, sourceProbe, lessonPaths, publicMediaBase }) {
+  const targetHeights = pickTargetHeights(sourceProbe.height);
+  const descriptors = targetHeights.map((targetHeight) =>
+    buildVariantDescriptor({ mediaRoot, publicMediaBase, lessonPaths, sourceProbe, targetHeight })
+  );
+
+  await fs.mkdir(lessonPaths.courseDir, { recursive: true });
+
+  const firstDescriptor = descriptors[0];
+  const firstVariant = await generateVariantAndCollect({
+    inputFilePath,
+    sourceProbe,
+    variantDescriptor: firstDescriptor,
+  });
+
+  const masterPlaylistPath = await writeMasterPlaylist({
+    sourceDir: lessonPaths.sourceDir,
+    lessonKey: lessonPaths.lessonKey,
+    variants: [firstVariant],
+  });
+
+  const backgroundDescriptors = descriptors.slice(1);
+  const backgroundTask = (async () => {
+    const variants = [firstVariant];
+
+    for (const descriptor of backgroundDescriptors) {
+      try {
+        const variant = await generateVariantAndCollect({
+          inputFilePath,
+          sourceProbe,
+          variantDescriptor: descriptor,
+        });
+        variants.push(variant);
+
+        await writeMasterPlaylist({
+          sourceDir: lessonPaths.sourceDir,
+          lessonKey: lessonPaths.lessonKey,
+          variants,
+        });
+      } catch (error) {
+        logBackgroundVariantError({
+          lessonPaths,
+          variantDescriptor: descriptor,
+          error,
+        });
+      }
+    }
+
+    return variants;
+  })();
+
+  return {
+    initialResult: buildLessonResult({
+      mediaRoot,
+      publicMediaBase,
+      lessonPaths,
+      masterPlaylistPath,
+      variants: [firstVariant],
+    }),
+    pendingVariants: backgroundDescriptors.length,
+    backgroundTask,
+  };
+}
+
+async function processLessonVideo({ inputFilePath, mediaRoot, sourceProbe, lessonPaths, publicMediaBase }) {
+  const targetHeights = pickTargetHeights(sourceProbe.height);
+  const variants = [];
+
+  await fs.mkdir(lessonPaths.courseDir, { recursive: true });
+
+  for (const targetHeight of targetHeights) {
+    const descriptor = buildVariantDescriptor({ mediaRoot, publicMediaBase, lessonPaths, sourceProbe, targetHeight });
+    const variant = await generateVariantAndCollect({
+      inputFilePath,
+      sourceProbe,
+      variantDescriptor: descriptor,
+    });
+
+    variants.push(variant);
+  }
+
+  const masterPlaylistPath = await writeMasterPlaylist({
+    sourceDir: lessonPaths.sourceDir,
+    lessonKey: lessonPaths.lessonKey,
+    variants,
+  });
+
+  return buildLessonResult({
+    mediaRoot,
+    publicMediaBase,
+    lessonPaths,
+    masterPlaylistPath,
+    variants,
+  });
 }
 
 module.exports = {
@@ -355,5 +472,6 @@ module.exports = {
   buildLessonPaths,
   tryBuildLessonPathsFromExistingLink,
   buildVersionedLessonPaths,
+  processLessonVideoQuickStart,
   processLessonVideo,
 };
