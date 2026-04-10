@@ -34,7 +34,12 @@ function buildAbsoluteUrl(req, relativePath) {
     ? String(relativePath || '')
     : `/${String(relativePath || '')}`;
 
-  if (PUBLIC_BASE_URL) {
+  const isLocalBaseUrl =
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(PUBLIC_BASE_URL);
+  const requestHost = String(req.headers['x-forwarded-host'] || req.get('host') || '');
+  const isLocalRequestHost = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(requestHost);
+
+  if (PUBLIC_BASE_URL && (!isLocalBaseUrl || isLocalRequestHost)) {
     return `${PUBLIC_BASE_URL}${normalizedPath}`;
   }
 
