@@ -8,8 +8,6 @@ const {
   ensureFfmpegAvailable,
   probeVideo,
   buildLessonPaths,
-  tryBuildLessonPathsFromExistingLink,
-  buildVersionedLessonPaths,
   processLessonVideoQuickStart,
 } = require('./src/video-processing');
 
@@ -178,17 +176,9 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
       lessonNumber: req.body.lessonNumber,
       lessonTitle: req.body.lessonTitle,
       lessonId: req.body.lessonId,
-      existingLink: req.body.existingLink,
     };
 
-    const existingLessonPaths = tryBuildLessonPathsFromExistingLink(
-      MEDIA_ROOT,
-      lessonInput.existingLink,
-      lessonInput.courseTitle,
-    );
-    const lessonPaths = existingLessonPaths
-      ? buildVersionedLessonPaths(existingLessonPaths)
-      : buildLessonPaths(MEDIA_ROOT, lessonInput);
+    const lessonPaths = buildLessonPaths(MEDIA_ROOT, lessonInput);
 
     const sourceProbe = await probeVideo(req.file.path);
     const pendingVariants = [420, 740, 2160].filter((height) => height < sourceProbe.height).length;
