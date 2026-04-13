@@ -68,7 +68,12 @@ app.use((req, res, next) => {
   const isMediaRequest = req.url.endsWith('.m3u8') || req.url.endsWith('.ts');
   const isApiRequest = req.path.startsWith('/api/');
 
-  if (isAllowedOrigin && (isMediaRequest || isApiRequest)) {
+  if (isMediaRequest) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Origin, Accept, Content-Type, Authorization');
+    res.setHeader('Vary', 'Origin');
+  } else if (isAllowedOrigin && isApiRequest) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS');
