@@ -17,12 +17,30 @@ const MEDIA_ROOT = process.env.MEDIA_ROOT || path.join(__dirname, 'media');
 const TEMP_UPLOAD_ROOT = process.env.TEMP_UPLOAD_ROOT || path.join(__dirname, 'tmp', 'uploads');
 const MAX_UPLOAD_SIZE_MB = Number(process.env.MAX_UPLOAD_SIZE_MB || 2048);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+const DEFAULT_CORS_ORIGINS = [
+  'https://gonvar.io',
+  'https://www.gonvar.io',
+  'https://stage.gonvar.io',
+];
+
 const ORIGIN_WHITELIST = new Set(
-  (process.env.CORS_ORIGINS || 'https://gonvar.io,https://www.gonvar.io,https://stage.gonvar.io')
+  (process.env.CORS_ORIGINS || DEFAULT_CORS_ORIGINS.join(','))
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean)
 );
+
+function isAllowedGonvarOrigin(origin) {
+  if (!origin) {
+    return false;
+  }
+
+  if (ORIGIN_WHITELIST.has(origin)) {
+    return true;
+  }
+
+  return /^https:\/\/(?:[a-z0-9-]+\.)*gonvar\.io$/i.test(origin);
+}
 
 fs.mkdirSync(TEMP_UPLOAD_ROOT, { recursive: true });
 fs.mkdirSync(MEDIA_ROOT, { recursive: true });
@@ -62,12 +80,12 @@ app.use(express.json({ limit: '10mb' }));
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  const isAllowedOrigin = origin && ORIGIN_WHITELIST.has(origin);
+  const isAllowedOrigin = isAllowedGonvarOrigin(origin);
   const isMediaRequest = req.url.endsWith('.m3u8') || req.url.endsWith('.ts');
   const isApiRequest = req.path.startsWith('/api/');
 
   if (isMediaRequest) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Origin', origin && isAllowedGonvarOrigin(origin) ? origin : '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Range, Origin, Accept, Content-Type, Authorization');
     res.setHeader('Vary', 'Origin');
