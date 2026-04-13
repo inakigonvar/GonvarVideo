@@ -42,15 +42,6 @@ function isAllowedGonvarOrigin(origin) {
   return /^https:\/\/(?:[a-z0-9-]+\.)*gonvar\.io$/i.test(origin);
 }
 
-function applyMediaCors(res, origin) {
-  res.setHeader('Access-Control-Allow-Origin', origin && isAllowedGonvarOrigin(origin) ? origin : '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Range, Origin, Accept, Content-Type, Authorization');
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.setHeader('Vary', 'Origin');
-}
-
 fs.mkdirSync(TEMP_UPLOAD_ROOT, { recursive: true });
 fs.mkdirSync(MEDIA_ROOT, { recursive: true });
 
@@ -93,9 +84,7 @@ app.use((req, res, next) => {
   const isMediaRequest = req.url.endsWith('.m3u8') || req.url.endsWith('.ts');
   const isApiRequest = req.path.startsWith('/api/');
 
-  if (isMediaRequest) {
-    applyMediaCors(res, origin);
-  } else if (isAllowedOrigin && isApiRequest) {
+  if (isAllowedOrigin && isApiRequest) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS');
@@ -117,7 +106,6 @@ app.use(
   express.static(MEDIA_ROOT, {
     dotfiles: 'allow',
     setHeaders: (res, filePath) => {
-      applyMediaCors(res, res.req?.headers?.origin);
       if (filePath.endsWith('.m3u8')) {
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -146,7 +134,6 @@ app.get('/media/*', (req, res, next) => {
     res.setHeader('Content-Type', 'video/mp2t');
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    applyMediaCors(res, req.headers.origin);
 
     if (!range) {
       return fs.createReadStream(filePath).pipe(res);
