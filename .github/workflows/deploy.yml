@@ -53,5 +53,7 @@ jobs:
           else
             npm install --omit=dev
           fi
-          pm2 restart gonvarvideo || pm2 start server.js --name gonvarvideo
+          fuser -k 25565/tcp || true
+          pm2 delete gonvarvideo || true
+          pm2 start server.js --name gonvarvideo --cwd "${DEPLOY_PATH}" --update-env
           EOF

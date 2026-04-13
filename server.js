@@ -20,7 +20,7 @@ const TEMP_UPLOAD_ROOT = process.env.TEMP_UPLOAD_ROOT || path.join(__dirname, 't
 const MAX_UPLOAD_SIZE_MB = Number(process.env.MAX_UPLOAD_SIZE_MB || 2048);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
 const ORIGIN_WHITELIST = new Set(
-  (process.env.CORS_ORIGINS || 'https://stage.gonvar.io,https://www.gonvar.io')
+  (process.env.CORS_ORIGINS || 'https://gonvar.io,https://www.gonvar.io,https://stage.gonvar.io')
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean)
@@ -186,13 +186,40 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
       : buildLessonPaths(MEDIA_ROOT, lessonInput);
 
     const sourceProbe = await probeVideo(req.file.path);
-    const { initialResult, pendingVariants, backgroundTask } = await processLessonVideoQuickStart({
+    const pendingVariants = [420, 740, 2160].filter((height) => height < sourceProbe.height).length;
+    const predictedMasterPlaylist = `${'/media'}/${path.relative(
+      MEDIA_ROOT,
+      path.join(lessonPaths.sourceDir, 'master.m3u8'),
+    ).split(path.sep).join('/')}`;
+
+    const backgroundTask = processLessonVideoQuickStart({
       inputFilePath: req.file.path,
       mediaRoot: MEDIA_ROOT,
       sourceProbe,
       lessonPaths,
       publicMediaBase: '/media',
     });
+
+    const predictedResult = {
+      courseTitle: lessonPaths.courseTitle,
+      courseSlug: lessonPaths.courseSlug,
+      seasonNumber: lessonPaths.seasonNumber,
+      lessonNumber: lessonPaths.lessonNumber,
+      lessonKey: lessonPaths.lessonKey,
+      sourceDir: lessonPaths.sourceDir,
+      sourcePlaylist: `${'/media'}/${path.relative(
+        MEDIA_ROOT,
+        path.join(lessonPaths.sourceDir, 'media.m3u8'),
+      ).split(path.sep).join('/')}`,
+      masterPlaylist: predictedMasterPlaylist,
+      masterPlaylistUrl: buildAbsoluteUrl(req, predictedMasterPlaylist),
+      sourcePlaylistUrl: buildAbsoluteUrl(req, `${'/media'}/${path.relative(
+        MEDIA_ROOT,
+        path.join(lessonPaths.sourceDir, 'media.m3u8'),
+      ).split(path.sep).join('/')}`),
+      variants: [],
+      versionKey: lessonPaths.versionKey || null,
+    };
 
     backgroundTask
       .catch((error) => {
@@ -214,10 +241,10 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
       lesson: {
         lessonId: lessonInput.lessonId || null,
         lessonTitle: lessonInput.lessonTitle || null,
-        courseTitle: initialResult.courseTitle,
-        seasonNumber: initialResult.seasonNumber,
-        lessonNumber: initialResult.lessonNumber,
-        lessonKey: initialResult.lessonKey,
+        courseTitle: lessonPaths.courseTitle,
+        seasonNumber: lessonPaths.seasonNumber,
+        lessonNumber: lessonPaths.lessonNumber,
+        lessonKey: lessonPaths.lessonKey,
       },
       source: sourceProbe,
       processing: {
@@ -229,13 +256,7 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
           : 'El video ya quedo disponible.',
       },
       hls: {
-        ...initialResult,
-        sourcePlaylistUrl: buildAbsoluteUrl(req, initialResult.sourcePlaylist),
-        masterPlaylistUrl: buildAbsoluteUrl(req, initialResult.masterPlaylist),
-        variants: initialResult.variants.map((variant) => ({
-          ...variant,
-          publicUrl: buildAbsoluteUrl(req, variant.publicPath),
-        })),
+        ...predictedResult,
       },
     });
   } catch (error) {
