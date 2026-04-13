@@ -64,8 +64,9 @@ function buildAbsoluteUrl(req, relativePath) {
     ? forwardedProto.split(',')[0].trim()
     : req.protocol;
   const host = req.headers['x-forwarded-host'] || req.get('host');
+  const isPublicHost = /(^|\.)gonvar\.io$/i.test(String(host || '').split(':')[0]);
 
-  return `${proto}://${host}${normalizedPath}`;
+  return `${isPublicHost ? 'https' : proto}://${host}${normalizedPath}`;
 }
 
 const upload = multer({
