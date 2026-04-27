@@ -8,6 +8,7 @@ const {
   ensureFfmpegAvailable,
   probeVideo,
   buildLessonPaths,
+  tryBuildLessonPathsFromExistingLink,
   processLessonVideoQuickStart,
 } = require('./src/video-processing');
 
@@ -185,14 +186,20 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
     await ensureFfmpegAvailable();
 
     const lessonInput = {
+      organizationSlug: req.body.organizationSlug,
+      contentType: req.body.contentType,
+      contentSlug: req.body.contentSlug,
       courseTitle: req.body.courseTitle,
       seasonNumber: req.body.seasonNumber,
       lessonNumber: req.body.lessonNumber,
       lessonTitle: req.body.lessonTitle,
       lessonId: req.body.lessonId,
+      existingLink: req.body.existingLink,
     };
 
-    const lessonPaths = buildLessonPaths(MEDIA_ROOT, lessonInput);
+    const lessonPaths = req.body.existingLink
+      ? tryBuildLessonPathsFromExistingLink(MEDIA_ROOT, req.body.existingLink, lessonInput.courseTitle) || buildLessonPaths(MEDIA_ROOT, lessonInput)
+      : buildLessonPaths(MEDIA_ROOT, lessonInput);
 
     const sourceProbe = await probeVideo(req.file.path);
     const pendingVariants = [420, 740, 2160].filter((height) => height < sourceProbe.height).length;
@@ -250,6 +257,9 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
       lesson: {
         lessonId: lessonInput.lessonId || null,
         lessonTitle: lessonInput.lessonTitle || null,
+        organizationSlug: lessonPaths.organizationSlug,
+        contentType: lessonPaths.contentType,
+        contentSlug: lessonPaths.contentSlug,
         courseTitle: lessonPaths.courseTitle,
         seasonNumber: lessonPaths.seasonNumber,
         lessonNumber: lessonPaths.lessonNumber,
@@ -266,6 +276,9 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
       },
       hls: {
         ...predictedResult,
+        organizationSlug: lessonPaths.organizationSlug,
+        contentType: lessonPaths.contentType,
+        contentSlug: lessonPaths.contentSlug,
       },
     });
   } catch (error) {

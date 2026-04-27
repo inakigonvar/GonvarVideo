@@ -67,21 +67,27 @@ function formatLessonKey(seasonNumber, lessonNumber) {
 }
 
 function buildLessonPaths(mediaRoot, lessonInput) {
+  const organizationSlug = slugify(lessonInput.organizationSlug || 'gonvar');
   if (!lessonInput.courseTitle) {
     throw new Error('courseTitle es obligatorio.');
   }
 
   const courseSlug = slugify(lessonInput.courseTitle);
+  const contentSlug = slugify(lessonInput.contentSlug || courseSlug);
+  const contentType = slugify(lessonInput.contentType || 'courses');
 
-  if (!courseSlug) {
+  if (!courseSlug || !organizationSlug || !contentSlug || !contentType) {
     throw new Error('courseTitle no es valido.');
   }
 
   const lessonKey = formatLessonKey(lessonInput.seasonNumber, lessonInput.lessonNumber);
-  const courseDir = path.join(mediaRoot, courseSlug);
+  const courseDir = path.join(mediaRoot, organizationSlug, contentType, contentSlug);
   const sourceDir = path.join(courseDir, lessonKey);
 
   return {
+    organizationSlug,
+    contentType,
+    contentSlug,
     courseSlug,
     courseTitle: lessonInput.courseTitle,
     seasonNumber: Number(lessonInput.seasonNumber),
@@ -108,6 +114,35 @@ function parseLessonKey(lessonKey) {
 
 function tryBuildLessonPathsFromExistingLink(mediaRoot, existingLink, fallbackCourseTitle) {
   const normalizedLink = String(existingLink || '').trim();
+  const newMatch = normalizedLink.match(/(?:https?:\/\/[^/]+)?\/media\/([^/]+)\/([^/]+)\/([^/]+)\/(\d+_\d{2})(?:\/([^/]+))?\/master\.m3u8(?:\?.*)?$/i);
+
+  if (newMatch) {
+    const organizationSlug = newMatch[1];
+    const contentType = newMatch[2];
+    const contentSlug = newMatch[3];
+    const lessonKey = newMatch[4];
+    const versionKey = newMatch[5] || null;
+    const { seasonNumber, lessonNumber } = parseLessonKey(lessonKey);
+    const courseDir = path.join(mediaRoot, organizationSlug, contentType, contentSlug);
+    const sourceDir = versionKey
+      ? path.join(courseDir, lessonKey, versionKey)
+      : path.join(courseDir, lessonKey);
+
+    return {
+      organizationSlug,
+      contentType,
+      contentSlug,
+      courseSlug: contentSlug,
+      courseTitle: fallbackCourseTitle || contentSlug,
+      seasonNumber,
+      lessonNumber,
+      lessonKey,
+      courseDir,
+      sourceDir,
+      versionKey,
+    };
+  }
+
   const match = normalizedLink.match(/(?:https?:\/\/[^/]+)?\/media\/([^/]+)\/(\d+_\d{2})(?:\/([^/]+))?\/master\.m3u8(?:\?.*)?$/i);
 
   if (!match) {
@@ -124,6 +159,9 @@ function tryBuildLessonPathsFromExistingLink(mediaRoot, existingLink, fallbackCo
     : path.join(courseDir, lessonKey);
 
   return {
+    organizationSlug: 'gonvar',
+    contentType: 'courses',
+    contentSlug: courseSlug,
     courseSlug,
     courseTitle: fallbackCourseTitle || courseSlug,
     seasonNumber,
