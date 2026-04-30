@@ -18,6 +18,8 @@ const MEDIA_ROOT = process.env.MEDIA_ROOT || path.join(__dirname, 'media');
 const TEMP_UPLOAD_ROOT = process.env.TEMP_UPLOAD_ROOT || path.join(__dirname, 'tmp', 'uploads');
 const MAX_UPLOAD_SIZE_MB = Number(process.env.MAX_UPLOAD_SIZE_MB || 2048);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+const MASTER_PLAYLIST_FILENAME = 'main.m3u8';
+const LEGACY_MASTER_PLAYLIST_FILENAME = 'master.m3u8';
 const DEFAULT_CORS_ORIGINS = [
   'https://gonvar.io',
   'https://www.gonvar.io',
@@ -118,6 +120,34 @@ app.use(
 );
 
 app.get('/media/*', (req, res, next) => {
+  if (!req.path.endsWith('.m3u8')) {
+    return next();
+  }
+
+  const rel = req.path.replace(/^\/media\//, '');
+  const requestedFile = path.basename(rel);
+
+  if (![MASTER_PLAYLIST_FILENAME, LEGACY_MASTER_PLAYLIST_FILENAME].includes(requestedFile)) {
+    return next();
+  }
+
+  const fallbackFile = requestedFile === MASTER_PLAYLIST_FILENAME
+    ? LEGACY_MASTER_PLAYLIST_FILENAME
+    : MASTER_PLAYLIST_FILENAME;
+  const fallbackPath = path.join(MEDIA_ROOT, path.dirname(rel), fallbackFile);
+
+  fs.stat(fallbackPath, (err, stats) => {
+    if (err || !stats.isFile()) {
+      return next();
+    }
+
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return res.sendFile(fallbackPath);
+  });
+});
+
+app.get('/media/*', (req, res, next) => {
   if (!req.path.endsWith('.ts')) {
     return next();
   }
@@ -205,7 +235,7 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
     const pendingVariants = [420, 740, 2160].filter((height) => height < sourceProbe.height).length;
     const predictedMasterPlaylist = `${'/media'}/${path.relative(
       MEDIA_ROOT,
-      path.join(lessonPaths.sourceDir, 'master.m3u8'),
+      path.join(lessonPaths.sourceDir, MASTER_PLAYLIST_FILENAME),
     ).split(path.sep).join('/')}`;
 
     const backgroundTask = processLessonVideoQuickStart({

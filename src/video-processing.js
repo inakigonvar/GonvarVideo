@@ -9,6 +9,8 @@ const AUDIO_BITRATE = process.env.AUDIO_BITRATE || '128k';
 const SOURCE_LABEL = process.env.SOURCE_LABEL || 'source';
 const SOURCE_TARGET_HEIGHT = Number(process.env.SOURCE_TARGET_HEIGHT || 2160);
 const BASE_TARGET_HEIGHTS = [420, 740, SOURCE_TARGET_HEIGHT];
+const MASTER_PLAYLIST_FILENAME = 'main.m3u8';
+const LEGACY_MASTER_PLAYLIST_FILENAME = 'master.m3u8';
 
 function runCommand(command, args) {
   return new Promise((resolve, reject) => {
@@ -114,7 +116,7 @@ function parseLessonKey(lessonKey) {
 
 function tryBuildLessonPathsFromExistingLink(mediaRoot, existingLink, fallbackCourseTitle) {
   const normalizedLink = String(existingLink || '').trim();
-  const newMatch = normalizedLink.match(/(?:https?:\/\/[^/]+)?\/media\/([^/]+)\/([^/]+)\/([^/]+)\/(\d+_\d{2})(?:\/([^/]+))?\/master\.m3u8(?:\?.*)?$/i);
+  const newMatch = normalizedLink.match(/(?:https?:\/\/[^/]+)?\/media\/([^/]+)\/([^/]+)\/([^/]+)\/(\d+_\d{2})(?:\/([^/]+))?\/(?:master|main)\.m3u8(?:\?.*)?$/i);
 
   if (newMatch) {
     const organizationSlug = newMatch[1];
@@ -143,7 +145,7 @@ function tryBuildLessonPathsFromExistingLink(mediaRoot, existingLink, fallbackCo
     };
   }
 
-  const match = normalizedLink.match(/(?:https?:\/\/[^/]+)?\/media\/([^/]+)\/(\d+_\d{2})(?:\/([^/]+))?\/master\.m3u8(?:\?.*)?$/i);
+  const match = normalizedLink.match(/(?:https?:\/\/[^/]+)?\/media\/([^/]+)\/(\d+_\d{2})(?:\/([^/]+))?\/(?:master|main)\.m3u8(?:\?.*)?$/i);
 
   if (!match) {
     return null;
@@ -329,8 +331,17 @@ async function writeMasterPlaylist({ sourceDir, lessonKey, variants }) {
     );
   }
 
-  const masterPath = path.join(sourceDir, 'master.m3u8');
+  const masterPath = path.join(sourceDir, MASTER_PLAYLIST_FILENAME);
   await fs.writeFile(masterPath, `${lines.join('\n')}\n`, 'utf8');
+
+  if (LEGACY_MASTER_PLAYLIST_FILENAME !== MASTER_PLAYLIST_FILENAME) {
+    await fs.writeFile(
+      path.join(sourceDir, LEGACY_MASTER_PLAYLIST_FILENAME),
+      `${lines.join('\n')}\n`,
+      'utf8'
+    );
+  }
+
   return masterPath;
 }
 

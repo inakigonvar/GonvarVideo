@@ -13,13 +13,13 @@ Servidor Node.js con Express para recibir videos desde `Gonvar-Nails-Academy`, c
 Ejemplo para la leccion 1 de la temporada 2:
 
 ```text
-media/<course-slug>/2_01/media.m3u8
-media/<course-slug>/2_01/master.m3u8
-media/<course-slug>/740/2_01/media.m3u8
-media/<course-slug>/420/2_01/media.m3u8
+media/gonvar/courses/<course-slug>/2_01/media.m3u8
+media/gonvar/courses/<course-slug>/2_01/main.m3u8
+media/gonvar/courses/<course-slug>/740/2_01/media.m3u8
+media/gonvar/courses/<course-slug>/420/2_01/media.m3u8
 ```
 
-Si el video original llega en 4K, la variante base queda en `media/<course-slug>/2_01/`.
+Si el video original llega en 4K, la variante base queda en `media/gonvar/courses/<course-slug>/2_01/`.
 Si llega en menor resolucion, la carpeta base guarda la resolucion fuente y las derivadas bajan desde ahi sin upscaling.
 
 ## Resoluciones
@@ -103,7 +103,7 @@ La respuesta incluye `masterPlaylist`, `sourcePlaylist` y tambien `masterPlaylis
 Ejemplo esperado:
 
 ```text
-https://video.gonvar.io/media/<course-name>/<seasonNumber>_<lessonNumber>/master.m3u8
+https://video.gonvar.io/media/gonvar/courses/<course-name>/<seasonNumber>_<lessonNumber>/main.m3u8
 ```
 
 El `lessonNumber` se rellena con cero a la izquierda cuando es menor a 10, por ejemplo `2_01`, `2_02`, ..., `2_10`.
@@ -111,7 +111,7 @@ El `lessonNumber` se rellena con cero a la izquierda cuando es menor a 10, por e
 Si una leccion ya tenia hyperlink y se vuelve a subir un video, el sistema conserva el video anterior y genera una nueva version dentro de la carpeta de esa leccion, por ejemplo:
 
 ```text
-https://video.gonvar.io/media/<course-name>/<seasonNumber>_<lessonNumber>/v20260329153045/master.m3u8
+https://video.gonvar.io/media/gonvar/courses/<course-name>/<seasonNumber>_<lessonNumber>/v20260329153045/main.m3u8
 ```
 
 Luego el frontend solo actualiza el hyperlink de la leccion al nuevo `masterPlaylistUrl`.
