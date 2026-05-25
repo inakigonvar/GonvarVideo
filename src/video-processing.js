@@ -199,7 +199,7 @@ async function probeVideo(inputFilePath) {
     '-select_streams',
     'v:0',
     '-show_entries',
-    'stream=width,height',
+    'stream=width,height:stream_tags=rotate:stream_side_data=rotation',
     '-show_entries',
     'format=duration',
     '-of',
@@ -214,9 +214,21 @@ async function probeVideo(inputFilePath) {
     throw new Error('No se pudo detectar la resolucion del video subido.');
   }
 
+  const rotation = Number(
+    stream?.tags?.rotate ||
+    (Array.isArray(stream?.side_data_list) ? stream.side_data_list.find((item) => item.rotation != null)?.rotation : 0) ||
+    0,
+  );
+  const shouldSwapDimensions = Math.abs(rotation) % 180 === 90;
+  const width = Number(stream.width);
+  const height = Number(stream.height);
+
   return {
-    width: Number(stream.width),
-    height: Number(stream.height),
+    width: shouldSwapDimensions ? height : width,
+    height: shouldSwapDimensions ? width : height,
+    encodedWidth: width,
+    encodedHeight: height,
+    rotation,
     duration: parsed.format && parsed.format.duration ? Number(parsed.format.duration) : null,
   };
 }

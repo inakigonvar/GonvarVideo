@@ -232,6 +232,7 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
       : buildLessonPaths(MEDIA_ROOT, lessonInput);
 
     const sourceProbe = await probeVideo(req.file.path);
+    const isVertical = sourceProbe.height > sourceProbe.width;
     const pendingVariants = [420, 740, 2160].filter((height) => height < sourceProbe.height).length;
     const predictedMasterPlaylist = `${'/media'}/${path.relative(
       MEDIA_ROOT,
@@ -295,7 +296,12 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
         lessonNumber: lessonPaths.lessonNumber,
         lessonKey: lessonPaths.lessonKey,
       },
-      source: sourceProbe,
+      source: {
+        ...sourceProbe,
+        aspectRatio: sourceProbe.width / sourceProbe.height,
+        orientation: isVertical ? 'vertical' : 'horizontal',
+        isVertical,
+      },
       processing: {
         startedInBackground: pendingVariants > 0,
         pendingVariants,
