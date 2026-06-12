@@ -79,6 +79,8 @@ const upload = multer({
   },
 });
 
+const formatUploadLimit = () => `${MAX_UPLOAD_SIZE_MB}MB`;
+
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 
@@ -332,6 +334,13 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
 
 app.use((error, _req, res, _next) => {
   if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        ok: false,
+        error: `El archivo excede el limite permitido de ${formatUploadLimit()}.`,
+      });
+    }
+
     return res.status(400).json({ ok: false, error: error.message });
   }
 
