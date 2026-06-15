@@ -355,6 +355,21 @@ async function writeMasterPlaylist({ sourceDir, lessonKey, variants }) {
   return masterPath;
 }
 
+async function getDirectorySizeBytes(directory) {
+  let total = 0;
+  const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      total += await getDirectorySizeBytes(fullPath);
+    } else if (entry.isFile()) {
+      const stats = await fs.stat(fullPath).catch(() => null);
+      total += stats?.size || 0;
+    }
+  }
+  return total;
+}
+
 function buildVariantDescriptor({ mediaRoot, publicMediaBase, lessonPaths, sourceProbe, targetHeight }) {
   const label = getVariantLabel(targetHeight, sourceProbe.height);
   const isSourceVariant = targetHeight === sourceProbe.height;
@@ -533,4 +548,5 @@ module.exports = {
   buildVersionedLessonPaths,
   processLessonVideoQuickStart,
   processLessonVideo,
+  getDirectorySizeBytes,
 };

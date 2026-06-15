@@ -10,6 +10,7 @@ const {
   buildLessonPaths,
   tryBuildLessonPathsFromExistingLink,
   processLessonVideoQuickStart,
+  getDirectorySizeBytes,
 } = require('./src/video-processing');
 
 const app = express();
@@ -18,6 +19,8 @@ const MEDIA_ROOT = process.env.MEDIA_ROOT || path.join(__dirname, 'media');
 const TEMP_UPLOAD_ROOT = process.env.TEMP_UPLOAD_ROOT || path.join(__dirname, 'tmp', 'uploads');
 const MAX_UPLOAD_SIZE_MB = Number(process.env.MAX_UPLOAD_SIZE_MB || 102400);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+const GONVAR_API_BASE_URL = String(process.env.GONVAR_API_BASE_URL || process.env.API_BASE_URL || '').replace(/\/$/, '');
+const CREATOR_STORAGE_WEBHOOK_SECRET = process.env.CREATOR_STORAGE_WEBHOOK_SECRET || '';
 const MASTER_PLAYLIST_FILENAME = 'main.m3u8';
 const LEGACY_MASTER_PLAYLIST_FILENAME = 'master.m3u8';
 const DEFAULT_CORS_ORIGINS = [
@@ -80,6 +83,30 @@ const upload = multer({
 });
 
 const formatUploadLimit = () => `${MAX_UPLOAD_SIZE_MB}MB`;
+
+async function postCreatorStorage(pathname, payload) {
+  if (!GONVAR_API_BASE_URL || !CREATOR_STORAGE_WEBHOOK_SECRET || typeof fetch !== 'function') {
+    return null;
+  }
+
+  const response = await fetch(`${GONVAR_API_BASE_URL}${pathname}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-gonvar-storage-secret': CREATOR_STORAGE_WEBHOOK_SECRET,
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = data?.message || data?.error || `Storage API error ${response.status}`;
+    const error = new Error(message);
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
 
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
@@ -223,6 +250,9 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
 
     const lessonInput = {
       organizationSlug: req.body.organizationSlug,
+      organizationId: req.body.organizationId,
+      creatorId: req.body.creatorId,
+      userId: req.body.userId,
       contentType: req.body.contentType,
       contentSlug: req.body.contentSlug,
       courseTitle: req.body.courseTitle,
@@ -238,6 +268,34 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
       : buildLessonPaths(MEDIA_ROOT, lessonInput);
 
     const sourceProbe = await probeVideo(req.file.path);
+    const storagePayloadBase = {
+      lessonId: lessonInput.lessonId || null,
+      courseId: req.body.courseId || null,
+      organizationId: lessonInput.organizationId || null,
+      creatorId: lessonInput.creatorId || null,
+      userId: lessonInput.userId || null,
+      organizationSlug: lessonPaths.organizationSlug,
+      contentType: lessonPaths.contentType,
+      contentSlug: lessonPaths.contentSlug,
+      sourceBytes: req.file.size || 0,
+      durationSeconds: sourceProbe.duration || null,
+      width: sourceProbe.width,
+      height: sourceProbe.height,
+    };
+
+    const storageCheck = await postCreatorStorage('/creator-billing/storage/check', {
+      ...storagePayloadBase,
+      incomingBytes: (req.file.size || 0) * Number(process.env.STORAGE_UPLOAD_ESTIMATE_MULTIPLIER || 3),
+    }).catch((error) => {
+      if (error.status === 402 || error.status === 400 || error.status === 403) throw error;
+      console.warn('[GonvarVideo] Storage precheck skipped', error.message);
+      return null;
+    });
+    if (storageCheck && storageCheck.allowed === false) {
+      cleanupTempFile();
+      return res.status(402).json({ ok: false, error: storageCheck.message, changePlanUrl: storageCheck.changePlanUrl, storage: storageCheck.storage });
+    }
+
     const isVertical = sourceProbe.height > sourceProbe.width;
     const pendingVariants = [420, 740, 2160].filter((height) => height < sourceProbe.height).length;
     const predictedMasterPlaylist = `${'/media'}/${path.relative(
@@ -275,6 +333,29 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
     };
 
     backgroundTask
+      .then(async (processingResult) => {
+        const variants = await processingResult.backgroundTask.catch(() => processingResult.initialResult.variants || []);
+        const variantDirectories = Array.from(new Set([
+          lessonPaths.sourceDir,
+          ...variants.map((variant) => variant.directory).filter(Boolean),
+        ]));
+        let processedBytes = 0;
+        for (const directory of variantDirectories) {
+          processedBytes += await getDirectorySizeBytes(directory);
+        }
+        const storagePath = path.relative(MEDIA_ROOT, lessonPaths.sourceDir).split(path.sep).join('/');
+        await postCreatorStorage('/creator-billing/storage/report', {
+          ...storagePayloadBase,
+          storagePath,
+          masterPlaylist: predictedMasterPlaylist,
+          processedBytes,
+          totalBytes: processedBytes,
+          variants: variants.map((variant) => ({ label: variant.label, width: variant.width, height: variant.height, publicPath: variant.publicPath })),
+          status: 'ready',
+        }).catch((error) => {
+          console.error('[GonvarVideo] Storage report failed', error.message);
+        });
+      })
       .catch((error) => {
         console.error('[GonvarVideo] Background processing task failed', {
           courseTitle: lessonInput.courseTitle,
