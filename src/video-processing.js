@@ -69,7 +69,7 @@ function formatLessonKey(seasonNumber, lessonNumber) {
 }
 
 function buildLessonPaths(mediaRoot, lessonInput) {
-  const organizationSlug = slugify(lessonInput.organizationSlug || 'gonvar');
+  const organizationSlug = slugify(lessonInput.organizationSlug || lessonInput.channelName || 'gonvar');
   if (!lessonInput.courseTitle) {
     throw new Error('courseTitle es obligatorio.');
   }

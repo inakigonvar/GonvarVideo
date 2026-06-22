@@ -250,6 +250,7 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
 
     const lessonInput = {
       organizationSlug: req.body.organizationSlug,
+      channelName: req.body.channelName,
       organizationId: req.body.organizationId,
       creatorId: req.body.creatorId,
       userId: req.body.userId,
@@ -262,6 +263,22 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
       lessonId: req.body.lessonId,
       existingLink: req.body.existingLink,
     };
+
+    if (lessonInput.organizationId) {
+      const channelValidation = await postCreatorStorage('/organizations/channel/validate-active', {
+        organizationId: lessonInput.organizationId,
+      }).catch((error) => {
+        if (error.status === 400 || error.status === 403) throw error;
+        console.warn('[GonvarVideo] Channel status validation skipped', error.message);
+        return null;
+      });
+      if (!channelValidation && !lessonInput.organizationSlug && !lessonInput.channelName) {
+        throw Object.assign(
+          new Error('Ingresa el nombre del canal para guardar el video bajo ese canal.'),
+          { status: 400 },
+        );
+      }
+    }
 
     const lessonPaths = req.body.existingLink
       ? tryBuildLessonPathsFromExistingLink(MEDIA_ROOT, req.body.existingLink, lessonInput.courseTitle) || buildLessonPaths(MEDIA_ROOT, lessonInput)
@@ -406,7 +423,7 @@ app.post('/api/lessons/upload', upload.single('video'), async (req, res) => {
     });
   } catch (error) {
     await cleanupTempFile();
-    return res.status(500).json({
+    return res.status(error.status || 500).json({
       ok: false,
       error: error.message,
     });
