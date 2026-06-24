@@ -72,7 +72,7 @@ npm start
 Si el servicio esta detras de Nginx, el proxy tambien debe permitir cuerpos grandes o la subida fallara con `413 Request Entity Too Large` antes de llegar a Express. Usa `deploy/nginx-gonvarvideo.conf` como referencia; lo importante es tener en el `server` o `location` de `video.gonvar.io`:
 
 ```nginx
-client_max_body_size 102400m;
+client_max_body_size 10240m;
 proxy_request_buffering off;
 ```
 
